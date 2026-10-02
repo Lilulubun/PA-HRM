@@ -1,5 +1,5 @@
 import neo4j from "neo4j-driver";
-import type { JevDecision } from "./ai-evidence";
+import { getSettings } from "./settings";
 
 export type AppraisalJev = { relevant: boolean; sufficient: boolean; classification: "support" | "contradiction"; probability: number; rating: 1 | 2 | 3 | 4 | 5; questionSetVersion: string };
 
