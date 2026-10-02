@@ -31,7 +31,24 @@ export async function assessAppraisal(input: { statements: { evidenceId: string;
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    full += decoder.decode(value, { stream: true });
+    const chunk = decoder.decode(value, { stream: true });
+    for (const line of chunk.split("\n")) {
+      if (!line.startsWith("data:")) continue;
+      const payload = line.slice(5).trim();
+      if (!payload || payload === "[DONE]") continue;
+      try {
+        const parsedChunk: unknown = JSON.parse(payload);
+        if (parsedChunk && typeof parsedChunk === "object" && "choices" in parsedChunk) {
+          const choices = (parsedChunk as { choices?: unknown }).choices;
+          if (Array.isArray(choices) && choices.length > 0 && choices[0] && typeof choices[0] === "object" && "delta" in choices[0]) {
+            const delta = (choices[0] as { delta?: unknown }).delta;
+            if (delta && typeof delta === "object" && "content" in delta && typeof (delta as { content?: unknown }).content === "string") {
+              full += (delta as { content: string }).content;
+            }
+          }
+        }
+      } catch { /* partial SSE line, skip */ }
+    }
   }
   const parsed = extractJson(full) as Record<string, unknown>;
   if (typeof parsed.relevant !== "boolean" || typeof parsed.sufficient !== "boolean" || (parsed.classification !== "support" && parsed.classification !== "contradiction") || typeof parsed.probability !== "number" || !Number.isInteger(parsed.rating) || (parsed.rating as number) < 1 || (parsed.rating as number) > 5) throw new Error("Invalid appraisal Jev response");
