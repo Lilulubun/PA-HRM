@@ -11,7 +11,7 @@ async function main() {
   const badJev = await runEvidence({ answerId: "a3", sourceText: "Source", jev: new MockJevAdapter({}), store });
   if (badJev.ok || badJev.stage !== "jev") throw new Error("invalid model assertion failed");
   const insufficient = await runEvidence({ answerId: "a4", sourceText: "Source", jev: new MockJevAdapter({ ...validJev, sufficient: false }), llm: new MockLlmAdapter({ summary: "bad", evidence: [{ answerId: "a4", evidenceId: "e4", quote: "Source", summary: "bad" }], citedEvidenceIds: ["e4"] }), store });
-  if (insufficient.ok || insufficient.stage !== "llm") throw new Error("insufficient evidence assertion failed");
+  if (!insufficient.ok || !insufficient.insufficient || insufficient.llm) throw new Error("insufficient evidence assertion failed");
   if (!followUpAllowed(0, false) || followUpAllowed(1, false) || followUpAllowed(0, true)) throw new Error("follow-up limit assertion failed");
 }
 main();

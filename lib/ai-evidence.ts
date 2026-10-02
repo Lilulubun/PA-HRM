@@ -14,7 +14,7 @@ export type JevDecision = {
 export type LlmEvidence = { answerId: string; quote: string; summary: string; evidenceId: string };
 export type LlmResult = { summary: string; evidence: LlmEvidence[]; citedEvidenceIds: string[] };
 export type ModelFailure = { ok: false; stage: "jev" | "llm"; error: string };
-export type ModelSuccess = { ok: true; jev: JevDecision; llm?: LlmResult };
+export type ModelSuccess = { ok: true; jev: JevDecision; llm?: LlmResult; insufficient?: boolean };
 export type EvidenceRunResult = ModelFailure | ModelSuccess;
 
 export interface JevAdapter {
@@ -66,6 +66,7 @@ export async function runEvidence(input: { answerId: string; sourceText: string;
   catch (error) { const failure: ModelFailure & { answerId: string } = { ok: false, stage: "jev", error: error instanceof Error ? error.message : "Jev unavailable", answerId: input.answerId }; await input.store.saveFailure(failure); return failure; }
   await input.store.saveJev({ answerId: input.answerId, result: decision });
   if (!input.llm || !decision.relevant) return { ok: true, jev: decision };
+  if (!decision.sufficient) return { ok: true, jev: decision, insufficient: true };
   try {
     const llm = validateLlm(await input.llm.summarize({ answerId: input.answerId, sourceText: input.sourceText, jev: decision }), input.sourceText, decision);
     for (const evidence of llm.evidence) await input.store.saveEvidence({ evidenceId: evidence.evidenceId, answerId: input.answerId, quote: evidence.quote, classification: decision.classification, sourceText: input.sourceText });
