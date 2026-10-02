@@ -13,7 +13,7 @@ export default async function HomePage() {
         <h1>PA-HRM</h1>
         <p>Evidence-traceable performance appraisal prototype.</p>
         <p><Link href="/login" style={{ display: "inline-block", padding: "0.5rem 1rem", border: "1px solid #555", borderRadius: "0.25rem" }}>Sign in to continue</Link></p>
-        <p style={{ fontSize: "small", marginTop: "2rem" }}>All data in this prototype is synthetic. Not a real organization. Not a validated appraisal instrument.</p>
+        <p style={{ fontSize: "small", marginTop: "2rem" }}>Demo prototype: seeded and demo-entered data only — no real employees. Not a validated appraisal instrument.</p>
       </main>
     );
   }

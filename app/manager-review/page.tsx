@@ -3,7 +3,7 @@ import { GraphPanel } from "../../components/graph-panel";
 import { EntityGraphPanel } from "../../components/entity-graph-panel";
 import { useEffect, useState } from "react";
 
-type Review = { status: string; rating: number | null; rationale: string; rubricAnchor: string; supportingEvidenceIds: string[]; counterEvidenceIds: string[]; evidence: { id: string; classification: string; sourceText: string }[]; finalizedAt: string | null };
+type Review = { status: string; rating: number | null; rationale: string; rubricAnchor: string; supportingEvidenceIds: string[]; counterEvidenceIds: string[]; evidence: { id: string; classification: string; sourceText: string }[]; finalizedAt: string | null; jevProposal?: { sufficient: boolean; classification: string; probability: number; rating: number } | null };
 
 export default function ManagerReviewPage() {
   const [review, setReview] = useState<Review | null>(null); const [error, setError] = useState(""); const [message, setMessage] = useState("");
@@ -31,7 +31,14 @@ export default function ManagerReviewPage() {
   return (
     <main>
       <h1>Manager review</h1>
-      <p>Status: {review.status}</p>
+      <p>Status: {review.status === "final" ? "Final (manager)" : review.status === "draft" ? "Manager-confirmed (draft)" : "No manager decision yet"}</p>
+      {review.jevProposal && (
+        <section aria-label="AI proposal">
+          <h2>AI proposal (Jev)</h2>
+          <p>Sufficient: {review.jevProposal.sufficient ? "yes" : "no — evidence package insufficient for a reliable rating"} | Stance: {review.jevProposal.classification} | Probability: {(review.jevProposal.probability * 100).toFixed(0)}% | Proposed rating: {review.jevProposal.rating}</p>
+          <p style={{ fontStyle: "italic" }}>AI proposal — informational only; decisions are manager-confirmed.</p>
+        </section>
+      )}
       <GraphPanel />
       <EntityGraphPanel />
       <form onSubmit={e => { e.preventDefault(); void submit("PUT"); }}>
@@ -46,7 +53,7 @@ export default function ManagerReviewPage() {
       <p role="status">{message}</p>
       <h2>Evidence trace</h2>
       <button type="button" className="secondary" style={{ marginBottom: "0.5rem" }} onClick={() => void runEvidenceBtn()}>Run AI evidence pass</button>
-      <ul>{review.evidence.map(e => <li key={e.id}><strong>{e.id}</strong> ({e.classification}): {e.sourceText}</li>)}</ul>
+      <ul>{review.evidence.map(e => <li key={e.id}><strong>{e.id}</strong> ({e.classification === "contradiction" ? "counter-evidence" : e.classification}): {e.sourceText}</li>)}</ul>
     </main>
   );
 }

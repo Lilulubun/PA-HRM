@@ -5,7 +5,7 @@ const user = process.env.NEO4J_USER ?? "neo4j";
 const password = process.env.NEO4J_PASSWORD ?? "neo4j";
 
 export type EvidenceTrace = { id: string; classification: string; answerId: string; sourceText: string };
-export type ManagerReview = { appraisalId: string; employeeId: string; managerId: string; status: "draft" | "final"; rating: number | null; rationale: string; rubricAnchor: string; supportingEvidenceIds: string[]; counterEvidenceIds: string[]; evidence: EvidenceTrace[]; finalizedAt: string | null };
+export type ManagerReview = { appraisalId: string; employeeId: string; managerId: string; status: "draft" | "final"; rating: number | null; rationale: string; rubricAnchor: string; supportingEvidenceIds: string[]; counterEvidenceIds: string[]; evidence: EvidenceTrace[]; finalizedAt: string | null; jevProposal?: { sufficient: boolean; classification: string; probability: number; rating: number } | null };
 export type ReviewInput = { rating: number; rationale: string; rubricAnchor: string; supportingEvidenceIds: string[]; counterEvidenceIds: string[] };
 
 function unavailable(error: unknown): Error { return new Error(`Neo4j unavailable at ${uri}. Start local Neo4j and set NEO4J_PASSWORD. ${(error as Error).message}`); }
@@ -49,9 +49,11 @@ export async function getManagerReview(appraisalId: string, managerId: string): 
         decision.finalizedAt AS finalizedAt,
         ap.id AS apId, evRows`, { appraisalId, managerId });
     const r = result.records[0]; if (!r) throw new Error("Forbidden");
+    const jevResult = await s.run("MATCH (ap:Appraisal {id:$id})-[:HAS_PROPOSAL]->(p:JevProposal) RETURN p.sufficient AS sufficient, p.classification AS classification, p.probability AS probability, p.rating AS rating LIMIT 1", { id: r.get("appraisalId") });
+    const jp = jevResult.records[0];
     const idToEvidence: Record<string, string> = {};
     for (const row of r.get("evRows") as EvidenceTrace[]) if (row.id) idToEvidence[row.id] = row.id;
-    return { appraisalId:r.get("appraisalId"), employeeId:r.get("employeeId"), managerId:r.get("managerId"), status:r.get("status"), rating:r.get("rating") === null ? null : Number(r.get("rating")), rationale:r.get("rationale"), rubricAnchor:r.get("rubricAnchor"), supportingEvidenceIds:r.get("supporting").filter((x: string) => idToEvidence[x]), counterEvidenceIds:r.get("counter").filter((x: string) => idToEvidence[x]), finalizedAt:r.get("finalizedAt")?.toString?.() ?? null, evidence:(r.get("evRows") as EvidenceTrace[]).filter((e: EvidenceTrace) => e.id) };
+    return { appraisalId:r.get("appraisalId"), employeeId:r.get("employeeId"), managerId:r.get("managerId"), status:r.get("status"), rating:r.get("rating") === null ? null : Number(r.get("rating")), rationale:r.get("rationale"), rubricAnchor:r.get("rubricAnchor"), supportingEvidenceIds:r.get("supporting").filter((x: string) => idToEvidence[x]), counterEvidenceIds:r.get("counter").filter((x: string) => idToEvidence[x]), finalizedAt:r.get("finalizedAt")?.toString?.() ?? null, evidence:(r.get("evRows") as EvidenceTrace[]).filter((e: EvidenceTrace) => e.id), jevProposal: jp ? { sufficient: Boolean(jp.get("sufficient")), classification: String(jp.get("classification")), probability: Number(jp.get("probability")), rating: Number(jp.get("rating")) } : null };
   } catch (error) { if ((error as Error).message === "Forbidden") throw error; throw unavailable(error); } finally { await s.close(); await d.close(); }
 }
 
