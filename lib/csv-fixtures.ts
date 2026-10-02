@@ -41,8 +41,25 @@ export async function importFixtures(text: string): Promise<CsvResult> {
   try {
     await session.run("RETURN 1");
     await session.executeWrite(async (tx) => { for (const row of result.rows) {
-      if (row.record_type === "feedback") await tx.run("MERGE (f:Feedback {id:$id}) ON CREATE SET f.synthetic=true, f.reviewerId=$reviewerId MERGE (a:Answer {id:$answerId}) ON CREATE SET a.synthetic=true, a.text=$text MERGE (f)-[:HAS_ANSWER]->(a)", { id: row.feedback_id, reviewerId: row.reviewer_id, answerId: row.answer_id, text: row.answer_text });
-      else await tx.run("MERGE (a:Answer {id:$id}) ON CREATE SET a.synthetic=true, a.text=$text", { id: row.answer_id || row.record_id, text: row.answer_text });
+      if (row.record_type === "feedback") await tx.run(`MERGE (f:Feedback {id:$id}) ON CREATE SET f.synthetic=true, f.reviewerId=$reviewerId, f.origin='seeded'
+        MERGE (a:Answer {id:$answerId}) ON CREATE SET a.synthetic=true, a.text=$text, a.origin='seeded'
+        MERGE (f)-[:HAS_ANSWER]->(a)
+        MERGE (ap:Appraisal {id:$appraisalId})
+        MERGE (ap)-[:HAS_FEEDBACK]->(f)
+        MERGE (e:Employee {id:$employeeId})
+        MERGE (f)-[:REGARDS]->(e)
+        MERGE (r:Reviewer {id:$reviewerId}) ON CREATE SET r.type=$reviewerType
+        MERGE (r)-[:PROVIDED]->(f)`, { id: row.feedback_id, reviewerId: row.reviewer_id, answerId: row.answer_id, text: row.answer_text, appraisalId: row.appraisal_id, employeeId: row.employee_id, reviewerType: row.reviewer_type });
+      else await tx.run(`MERGE (a:Answer {id:$id}) ON CREATE SET a.synthetic=true, a.text=$text, a.origin='seeded'
+        WITH a WHERE a.currentVersion IS NULL
+        CREATE (v:AnswerVersion {version:1, text:a.text, origin:'seeded', createdAt:datetime()})
+        MERGE (a)-[:HAS_VERSION]->(v)
+        SET a.currentVersion = 1`, { id: row.answer_id || row.record_id, text: row.answer_text });
+      await tx.run(`MATCH (a:Answer {id:$answerId}) WHERE a.currentVersion IS NULL
+        WITH a, a.text AS text
+        CREATE (v:AnswerVersion {version:1, text:text, origin:'seeded', createdAt:datetime()})
+        MERGE (a)-[:HAS_VERSION]->(v)
+        SET a.currentVersion = 1`, { answerId: row.answer_id });
     } });
     return result;
   } catch { throw new Error("Neo4j unavailable. Start local Neo4j and set NEO4J_PASSWORD."); } finally { await session.close(); await driver.close(); }

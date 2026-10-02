@@ -12,7 +12,7 @@ MERGE (a:Answer {id:item.answerId}) ON CREATE SET a.synthetic=true, a.text=item.
 MERGE (f)-[:HAS_ANSWER]->(a)
 WITH f, item
 MATCH (ap:Appraisal {id:$appraisalId})
-MERGE (f)-[:ABOUT]->(ap)
+MERGE (ap)-[:HAS_FEEDBACK]->(f)
 WITH f, item, ap
 MATCH (r:Reviewer {id:item.reviewerId})
 MERGE (r)-[:PROVIDED]->(f)
@@ -59,6 +59,21 @@ export async function seed(): Promise<void> {
     await session.run(`MATCH (a:Answer)-[r:SUPPORTED_BY|CONTRADICTS]-(e:Evidence)
       MERGE (a)-[:SOURCE_FOR]->(e)
       DELETE r`);
+    // T8 migration: legacy SUBMITTED feedback alias -> PROVIDED for peer reviews, delete legacy SUBMITTED on peer feedback.
+    await session.run(`MATCH (r:Reviewer)-[s:SUBMITTED]->(f:Feedback)
+      MERGE (r)-[:PROVIDED]->(f)
+      DELETE s`);
+    // T8 migration: every Feedback linked to exactly one Appraisal via HAS_FEEDBACK, drop legacy ABOUT-to-Appraisal.
+    await session.run(`MATCH (f:Feedback)-[ab:ABOUT]->(ap:Appraisal)
+      MERGE (ap)-[:HAS_FEEDBACK]->(f)
+      DELETE ab`);
+    // T8 migration: answers belong to their employee via REGARDS.
+    await session.run(`MATCH (ap:Appraisal {id:$appraisalId})-[:HAS_ANSWER]->(a:Answer)
+      MATCH (e:Employee {id:$employeeId})
+      MERGE (a)-[:REGARDS]->(e)`, { appraisalId: fixtureManifest.appraisal.id, employeeId: fixtureManifest.employee.id });
+    await session.run(`MATCH (ap:Appraisal {id:$appraisalId})-[:HAS_FEEDBACK]->(f:Feedback)
+      MATCH (e:Employee {id:$employeeId})
+      MERGE (f)-[:ABOUT]->(e)`, { appraisalId: fixtureManifest.appraisal.id, employeeId: fixtureManifest.employee.id });
     // Entity-centric hub links.
     await session.run(`MATCH (e:Employee {id:$employeeId}), (ap:Appraisal {id:$appraisalId}), (m:Manager {id:$managerId})
       MERGE (ap)-[:OF_EMPLOYEE]->(e)
