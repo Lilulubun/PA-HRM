@@ -22,9 +22,13 @@ export async function getManagerReview(appraisalId: string, managerId: string): 
   try {
     const result = await s.run(`
       MATCH (ap:Appraisal {id:$appraisalId, managerId:$managerId})
-      OPTIONAL MATCH (f:Feedback)-[:ABOUT]->(ap)-[:HAS_DECISION]->(dec:ManagerDecision)
+      OPTIONAL MATCH (ap)-[:HAS_DECISION]->(dec:ManagerDecision)
       WITH ap, dec ORDER BY dec.createdAt DESC
       WITH ap, head(collect(dec)) AS decision
+      OPTIONAL MATCH (decision)-[:REVISES|FINALIZES]->(r:Rating)-[:RATED_AGAINST]->(anchor:RubricAnchor)
+      OPTIONAL MATCH (r)-[:SUPPORTED_BY]->(se:Evidence)
+      OPTIONAL MATCH (r)-[:COUNTERED_BY]->(ce:Evidence)
+      WITH ap, decision, r, anchor, collect(DISTINCT se.id) AS supporting, collect(DISTINCT ce.id) AS counter
       CALL {
         WITH ap
         OPTIONAL MATCH (f2:Feedback)-[:ABOUT]->(ap)
@@ -36,26 +40,53 @@ export async function getManagerReview(appraisalId: string, managerId: string): 
       }
       UNWIND combinedAnswers AS a
       OPTIONAL MATCH (a)-[:SOURCE_FOR]->(e:Evidence {current:true})
-      WITH ap, decision, collect(DISTINCT {id:e.id, classification:coalesce(e.classification, "SOURCE_FOR"), answerId:a.id, sourceText:a.text}) AS evRows
+      WITH ap, decision, r, anchor, supporting, counter, collect(DISTINCT {id:e.id, classification:coalesce(e.classification, "SOURCE_FOR"), answerId:a.id, sourceText:a.text}) AS evRows
       RETURN ap.id AS appraisalId, ap.employeeId AS employeeId, ap.managerId AS managerId,
-        coalesce(decision.status, 'draft') AS status, coalesce(decision.rating, ap.draftRating) AS rating,
-        coalesce(decision.rationale, ap.draftRationale, '') AS rationale,
-        coalesce(decision.rubricAnchor, ap.draftRubricAnchor, '') AS rubricAnchor,
-        coalesce(decision.supportingEvidenceIds, ap.draftSupportingEvidenceIds, []) AS supporting,
-        coalesce(decision.counterEvidenceIds, ap.draftCounterEvidenceIds, []) AS counter,
+        coalesce(decision.status, 'draft') AS status, r.level AS rating, coalesce(decision.rationale, '') AS rationale,
+        anchor.id AS rubricAnchor,
+        [x IN supporting | toString(x)] AS supporting,
+        [x IN counter | toString(x)] AS counter,
         decision.finalizedAt AS finalizedAt,
         ap.id AS apId, evRows`, { appraisalId, managerId });
     const r = result.records[0]; if (!r) throw new Error("Forbidden");
-    return { appraisalId:r.get("appraisalId"), employeeId:r.get("employeeId"), managerId:r.get("managerId"), status:r.get("status"), rating:r.get("rating") === null ? null : Number(r.get("rating")), rationale:r.get("rationale"), rubricAnchor:r.get("rubricAnchor"), supportingEvidenceIds:r.get("supporting") ?? [], counterEvidenceIds:r.get("counter") ?? [], finalizedAt:r.get("finalizedAt")?.toString?.() ?? null, evidence:(r.get("evRows") as EvidenceTrace[]).filter((e: EvidenceTrace) => e.id) };
+    const idToEvidence: Record<string, string> = {};
+    for (const row of r.get("evRows") as EvidenceTrace[]) if (row.id) idToEvidence[row.id] = row.id;
+    return { appraisalId:r.get("appraisalId"), employeeId:r.get("employeeId"), managerId:r.get("managerId"), status:r.get("status"), rating:r.get("rating") === null ? null : Number(r.get("rating")), rationale:r.get("rationale"), rubricAnchor:r.get("rubricAnchor"), supportingEvidenceIds:r.get("supporting").filter((x: string) => idToEvidence[x]), counterEvidenceIds:r.get("counter").filter((x: string) => idToEvidence[x]), finalizedAt:r.get("finalizedAt")?.toString?.() ?? null, evidence:(r.get("evRows") as EvidenceTrace[]).filter((e: EvidenceTrace) => e.id) };
   } catch (error) { if ((error as Error).message === "Forbidden") throw error; throw unavailable(error); } finally { await s.close(); await d.close(); }
 }
 
 export async function saveManagerDraft(appraisalId: string, managerId: string, input: ReviewInput): Promise<void> {
   validate(input); const d=driver(); const s=d.session();
-  try { await s.run(`MATCH (ap:Appraisal {id:$appraisalId, managerId:$managerId}) WHERE NOT (ap)-[:HAS_DECISION]->(:ManagerDecision {status:'final'}) SET ap.draftRating=$rating, ap.draftRationale=$rationale, ap.draftRubricAnchor=$rubricAnchor, ap.draftSupportingEvidenceIds=$supporting, ap.draftCounterEvidenceIds=$counter`, { appraisalId, managerId, rating:input.rating, rationale:input.rationale, rubricAnchor:input.rubricAnchor, supporting:input.supportingEvidenceIds, counter:input.counterEvidenceIds }); } catch (error) { throw unavailable(error); } finally { await s.close(); await d.close(); }
+  try {
+    const result = await s.run(`MATCH (ap:Appraisal {id:$appraisalId, managerId:$managerId}) WHERE NOT (ap)-[:HAS_DECISION]->(:ManagerDecision {status:'final'})
+      MATCH (anchor:RubricAnchor {id:$rubricAnchor})
+      CREATE (r:Rating {id:'rating-draft:'+ $appraisalId + ':' + randomUUID(), status:'draft', level:$rating, rubricVersion:'v1', createdAt:datetime()})
+      CREATE (ap)-[:HAS_RATING]->(r)
+      CREATE (r)-[:RATED_AGAINST]->(anchor)
+      WITH r, ap OPTIONAL MATCH (e:Evidence {current:true}) WHERE e.id IN $supporting WITH r, ap, collect(e) AS ses OPTIONAL MATCH (e2:Evidence {current:true}) WHERE e2.id IN $counter WITH r, ap, ses, collect(e2) AS ces CALL { WITH r, ses UNWIND ses AS se MERGE (r)-[:SUPPORTED_BY]->(se) } CALL { WITH r, ces UNWIND ces AS ce MERGE (r)-[:COUNTERED_BY]->(ce) }
+      WITH ap, r CREATE (dec:ManagerDecision {id:'decision-draft:'+ $appraisalId + ':' + randomUUID(), status:'draft', action:'draft_save', rationale:$rationale, managerId:$managerId, createdAt:datetime()})
+      CREATE (ap)-[:HAS_DECISION]->(dec)
+      CREATE (dec)-[:REVISES]->(r)
+      WITH ap, r, dec MATCH (m:Manager {id:$managerId}) CREATE (m)-[:MADE_DECISION]->(dec)
+      RETURN dec.id AS id`, { appraisalId, managerId, rating:input.rating, rationale:input.rationale, rubricAnchor:input.rubricAnchor, supporting:input.supportingEvidenceIds, counter:input.counterEvidenceIds });
+    if (!result.records[0]) throw new Error("FORBIDDEN");
+  } catch (error) { if ((error as Error).message === "FORBIDDEN") throw error; throw unavailable(error); } finally { await s.close(); await d.close(); }
 }
 
 export async function finalizeManagerReview(appraisalId: string, managerId: string, input: ReviewInput): Promise<void> {
   validate(input); const d=driver(); const s=d.session();
-  try { const result=await s.run(`MATCH (ap:Appraisal {id:$appraisalId, managerId:$managerId}) WHERE NOT (ap)-[:HAS_DECISION]->(:ManagerDecision {status:'final'}) CREATE (dec:ManagerDecision {id:'decision:'+ $appraisalId + ':' + $managerId, status:'final', rating:$rating, rationale:$rationale, rubricAnchor:$rubricAnchor, supportingEvidenceIds:$supporting, counterEvidenceIds:$counter, managerId:$managerId, createdAt:datetime(), finalizedAt:datetime()}) CREATE (ap)-[:HAS_DECISION]->(dec) RETURN dec`, { appraisalId, managerId, rating:input.rating, rationale:input.rationale, rubricAnchor:input.rubricAnchor, supporting:input.supportingEvidenceIds, counter:input.counterEvidenceIds }); if (!result.records[0]) throw new Error("Appraisal already finalized or forbidden"); } catch (error) { if ((error as Error).message.includes("already finalized")) throw error; throw unavailable(error); } finally { await s.close(); await d.close(); }
+  try {
+    const result = await s.run(`MATCH (ap:Appraisal {id:$appraisalId, managerId:$managerId}) WHERE NOT (ap)-[:HAS_DECISION]->(:ManagerDecision {status:'final'})
+      MATCH (anchor:RubricAnchor {id:$rubricAnchor})
+      CREATE (r:Rating {id:'rating-final:'+ $appraisalId + ':' + randomUUID(), status:'final', level:$rating, rubricVersion:'v1', createdAt:datetime()})
+      CREATE (ap)-[:HAS_RATING]->(r)
+      CREATE (r)-[:RATED_AGAINST]->(anchor)
+      WITH r, ap OPTIONAL MATCH (e:Evidence {current:true}) WHERE e.id IN $supporting WITH r, ap, collect(e) AS ses OPTIONAL MATCH (e2:Evidence {current:true}) WHERE e2.id IN $counter WITH r, ap, ses, collect(e2) AS ces CALL { WITH r, ses UNWIND ses AS se MERGE (r)-[:SUPPORTED_BY]->(se) } CALL { WITH r, ces UNWIND ces AS ce MERGE (r)-[:COUNTERED_BY]->(ce) }
+      WITH ap, r CREATE (dec:ManagerDecision {id:'decision-final:'+ $appraisalId + ':' + randomUUID(), status:'final', action:'finalize', rationale:$rationale, managerId:$managerId, createdAt:datetime(), finalizedAt:datetime()})
+      CREATE (ap)-[:HAS_DECISION]->(dec)
+      CREATE (dec)-[:FINALIZES]->(r)
+      WITH ap, r, dec MATCH (m:Manager {id:$managerId}) CREATE (m)-[:MADE_DECISION]->(dec)
+      RETURN dec.id AS id`, { appraisalId, managerId, rating:input.rating, rationale:input.rationale, rubricAnchor:input.rubricAnchor, supporting:input.supportingEvidenceIds, counter:input.counterEvidenceIds });
+    if (!result.records[0]) throw new Error("Appraisal already finalized or forbidden");
+  } catch (error) { if ((error as Error).message === "Appraisal already finalized or forbidden") throw error; throw unavailable(error); } finally { await s.close(); await d.close(); }
 }
