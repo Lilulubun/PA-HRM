@@ -86,3 +86,13 @@ export async function appraisalAnswers(appraisalId: string): Promise<{ id: strin
     return result.records.map((r) => ({ id: r.get("id"), text: r.get("text") }));
   } catch (error) { throw unavailable(error); } finally { await session.close(); }
 }
+
+export type CurrentEvidence = { id: string; quote: string; classification: string };
+
+export async function listCurrentEvidence(appraisalId: string): Promise<CurrentEvidence[]> {
+  const session = driver().session();
+  try {
+    const result = await session.run("MATCH (ap:Appraisal {id:$id})<-[:ABOUT]-(:Feedback)-[:HAS_ANSWER]->(a:Answer)<-[:SOURCE_FOR]-(e:Evidence {current:true}) RETURN e.id AS id, e.quote AS quote, e.classification AS classification UNION MATCH (ap2:Appraisal {id:$id})-[:HAS_ANSWER]->(a2:Answer)<-[:SOURCE_FOR]-(e2:Evidence {current:true}) RETURN e2.id AS id, e2.quote AS quote, e2.classification AS classification", { id: appraisalId });
+    return result.records.map((r) => ({ id: r.get("id"), quote: r.get("quote"), classification: r.get("classification") }));
+  } catch (error) { throw unavailable(error); } finally { await session.close(); }
+}

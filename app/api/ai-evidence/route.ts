@@ -2,8 +2,9 @@ import { NextResponse } from "next/server";
 import { requireRole, getSession } from "../../../lib/auth";
 import { runEvidence, type EvidenceStore } from "../../../lib/ai-evidence";
 import { HttpJevAdapter, HttpLlmAdapter } from "../../../lib/http-adapters";
-import { appraisalAnswers, markEvidenceCurrent, retireCurrentEvidence, saveEvidence, saveFailure, saveJev, saveSummary } from "../../../lib/evidence-store";
+import { appraisalAnswers, listCurrentEvidence, markEvidenceCurrent, retireCurrentEvidence, saveEvidence, saveFailure, saveJev, saveSummary } from "../../../lib/evidence-store";
 import { getSettings } from "../../../lib/settings";
+import { assessAppraisal, saveAppraisalJev } from "../../../lib/appraisal-jev";
 
 const appraisalId = "appraisal-001";
 
@@ -32,7 +33,13 @@ export async function POST() {
       }
       results.push(result.ok ? { answerId: answer.id, ok: true, jev: result.jev, evidence: result.llm?.evidence.length ?? 0 } : { answerId: answer.id, ok: false, stage: result.stage, error: result.error });
     }
-    return NextResponse.json({ ok: true, ran: results.length, results });
+    const currentEvidence = await listCurrentEvidence(appraisalId);
+    let appraisalJev: unknown = null;
+    try {
+      appraisalJev = await assessAppraisal({ statements: currentEvidence.map(e => ({ evidenceId: e.id, quote: e.quote, classification: e.classification })), competency: "problem solving" });
+      await saveAppraisalJev({ appraisalId, result: appraisalJev as never });
+    } catch (error) { appraisalJev = { error: (error as Error).message }; }
+    return NextResponse.json({ ok: true, ran: results.length, results, appraisalJev });
   } catch (error) {
     const message = (error as Error).message;
     return NextResponse.json({ error: message === "FORBIDDEN" ? "Forbidden" : message }, { status: message === "FORBIDDEN" ? 403 : 502 });
