@@ -67,6 +67,8 @@ export async function seed(): Promise<void> {
     await session.run(`MATCH (f:Feedback)-[ab:ABOUT]->(ap:Appraisal)
       MERGE (ap)-[:HAS_FEEDBACK]->(f)
       DELETE ab`);
+    await session.run(`MATCH (ap:Appraisal {id:$appraisalId}) MATCH (f:Feedback {reviewerId:$reviewerId})-[:ABOUT]->(:Employee {id:$employeeId})
+      MERGE (ap)-[:HAS_FEEDBACK]->(f)`, { appraisalId: fixtureManifest.appraisal.id, employeeId: fixtureManifest.employee.id, reviewerId: process.env.NEO4J_USER ?? "neo4j" });
     // T8 migration: answers belong to their employee via REGARDS.
     await session.run(`MATCH (ap:Appraisal {id:$appraisalId})-[:HAS_ANSWER]->(a:Answer)
       MATCH (e:Employee {id:$employeeId})
