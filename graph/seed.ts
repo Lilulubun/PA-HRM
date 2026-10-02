@@ -55,6 +55,10 @@ export async function seed(): Promise<void> {
       CREATE (v:AnswerVersion {version:1, text:text, origin:'seeded', createdAt:datetime()})
       MERGE (a)-[:HAS_VERSION]->(v)
       SET a.currentVersion = 1`);
+    // T3 migration: SUPPORTED_BY/CONTRADICTS -> SOURCE_FOR (idempotent).
+    await session.run(`MATCH (a:Answer)-[r:SUPPORTED_BY|CONTRADICTS]-(e:Evidence)
+      MERGE (a)-[:SOURCE_FOR]->(e)
+      DELETE r`);
     // Entity-centric hub links.
     await session.run(`MATCH (e:Employee {id:$employeeId}), (ap:Appraisal {id:$appraisalId}), (m:Manager {id:$managerId})
       MERGE (ap)-[:OF_EMPLOYEE]->(e)

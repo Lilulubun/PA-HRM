@@ -30,16 +30,15 @@ export async function saveJev(input: { answerId: string; result: unknown }): Pro
 export async function saveEvidence(input: { evidenceId: string; answerId: string; quote: string; classification: EvidenceClassification; sourceText: string }): Promise<void> {
   if (!exactQuote(input.sourceText, input.quote)) return;
   const session = driver().session();
-  const rel = input.classification === "support" ? "SUPPORTED_BY" : "CONTRADICTS";
   try {
-    await session.run(`MATCH (a:Answer {id:$answerId}) MERGE (e:Evidence {id:$evidenceId}) ON CREATE SET e.quote=$quote, e.classification=$classification, e.current=false, e.createdAt=datetime(), e.answer_version=coalesce(a.currentVersion,1) MERGE (e)-[:${rel}]->(a)`, { evidenceId: input.evidenceId, answerId: input.answerId, quote: input.quote, classification: input.classification });
+    await session.run(`MATCH (a:Answer {id:$answerId}) MERGE (e:Evidence {id:$evidenceId}) ON CREATE SET e.quote=$quote, e.classification=$classification, e.current=false, e.createdAt=datetime(), e.answer_version=coalesce(a.currentVersion,1) MERGE (a)-[:SOURCE_FOR]->(e)`, { evidenceId: input.evidenceId, answerId: input.answerId, quote: input.quote, classification: input.classification });
   } catch (error) { throw unavailable(error); } finally { await session.close(); }
 }
 
 export async function startEvidenceVersion(answerId: string): Promise<number> {
   const session = driver().session();
   try {
-    const result = await session.run("MATCH (:Evidence {current:true})-[:SOURCE_FOR|SUPPORTED_BY|CONTRADICTS]->(a:Answer {id:$id}) RETURN count(*) AS n", { id: answerId });
+    const result = await session.run("MATCH (:Evidence {current:true})-<-[:SOURCE_FOR]-->(a:Answer {id:$id}) RETURN count(*) AS n", { id: answerId });
     return Number(result.records[0]?.get("n") ?? 0);
   } catch (error) { throw unavailable(error); } finally { await session.close(); }
 }
@@ -47,14 +46,14 @@ export async function startEvidenceVersion(answerId: string): Promise<number> {
 export async function retireCurrentEvidence(answerId: string): Promise<void> {
   const session = driver().session();
   try {
-    await session.run("MATCH (e:Evidence {current:true})-[:SUPPORTED_BY|CONTRADICTS]->(a:Answer {id:$id}) SET e.current=false, e.supersededAt=datetime()", { id: answerId });
+    await session.run("MATCH (e:Evidence {current:true})<-[:SOURCE_FOR]-(a:Answer {id:$id}) SET e.current=false, e.supersededAt=datetime()", { id: answerId });
   } catch (error) { throw unavailable(error); } finally { await session.close(); }
 }
 
 export async function markEvidenceCurrent(answerId: string, evidenceIds: string[]): Promise<void> {
   const session = driver().session();
   try {
-    await session.run(`UNWIND $ids AS id MATCH (e:Evidence {id:id})-[:SUPPORTED_BY|CONTRADICTS]->(:Answer {id:$answerId}) SET e.current=true`, { ids: evidenceIds, answerId });
+    await session.run(`UNWIND $ids AS id MATCH (e:Evidence {id:id})<-[:SOURCE_FOR]-(:Answer {id:$answerId}) SET e.current=true`, { ids: evidenceIds, answerId });
   } catch (error) { throw unavailable(error); } finally { await session.close(); }
 }
 
@@ -75,7 +74,7 @@ export async function saveFailure(input: { answerId: string; stage: string; erro
 export async function listEvidence(): Promise<EvidenceRow[]> {
   const session = driver().session();
   try {
-    const result = await session.run("MATCH (e:Evidence)-[r:SUPPORTED_BY|CONTRADICTS]->(a:Answer) RETURN e.id AS id, e.classification AS classification, a.id AS answerId, a.text AS sourceText ORDER BY e.id");
+    const result = await session.run("MATCH (e:Evidence)<-[:SOURCE_FOR]-(a:Answer) RETURN e.id AS id, e.classification AS classification, a.id AS answerId, a.text AS sourceText ORDER BY e.id");
     return result.records.map((r) => ({ id: r.get("id"), classification: r.get("classification"), answerId: r.get("answerId"), sourceText: r.get("sourceText") }));
   } catch (error) { throw unavailable(error); } finally { await session.close(); }
 }

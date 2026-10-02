@@ -35,8 +35,8 @@ export async function getManagerReview(appraisalId: string, managerId: string): 
         RETURN faList + saList AS combinedAnswers
       }
       UNWIND combinedAnswers AS a
-      OPTIONAL MATCH (e:Evidence {current:true})-[rel:SUPPORTED_BY|CONTRADICTS]->(a)
-      WITH ap, decision, collect(DISTINCT {id:e.id, classification:coalesce(e.classification, type(rel)), answerId:a.id, sourceText:a.text}) AS evRows
+      OPTIONAL MATCH (a)-[:SOURCE_FOR]->(e:Evidence {current:true})
+      WITH ap, decision, collect(DISTINCT {id:e.id, classification:coalesce(e.classification, type("SOURCE_FOR")), answerId:a.id, sourceText:a.text}) AS evRows
       RETURN ap.id AS appraisalId, ap.employeeId AS employeeId, ap.managerId AS managerId,
         coalesce(decision.status, 'draft') AS status, coalesce(decision.rating, ap.draftRating) AS rating,
         coalesce(decision.rationale, ap.draftRationale, '') AS rationale,
