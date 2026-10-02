@@ -4,6 +4,7 @@ import type { Session } from "../lib/auth";
 const paths = [
   { href: "/login", label: "Login", roles: null },
   { href: "/self-review", label: "Self-review", roles: ["employee"] as const },
+  { href: "/peer-setup", label: "Peer setup", roles: ["manager"] as const },
   { href: "/settings", label: "Settings", roles: ["manager"] as const },
   { href: "/manager-review", label: "Manager review", roles: ["manager"] as const },
 ];

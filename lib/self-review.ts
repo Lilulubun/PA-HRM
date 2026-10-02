@@ -4,8 +4,7 @@ import type { Driver } from "neo4j-driver";
 const uri = process.env.NEO4J_URI ?? "bolt://127.0.0.1:7687";
 const user = process.env.NEO4J_USER ?? "neo4j";
 const password = process.env.NEO4J_PASSWORD ?? "neo4j";
-
-export type ReviewAnswer = { questionId: string; prompt: string; text: string; updatedAt: string | null };
+export type ReviewAnswer = { questionId: string; prompt: string; text: string; updatedAt: string | null; version?: number };
 export const REVIEW_QUESTIONS = [{ id: "problem-solving", prompt: "Describe how you solved a difficult problem and what you learned." }];
 
 function answerId(appraisalId: string, employeeId: string, questionId: string) {
@@ -39,18 +38,36 @@ export async function saveSelfReview(appraisalId: string, employeeId: string, qu
     const result = await session.run(`
       MATCH (ap:Appraisal {id:$appraisalId})
       MERGE (a:Answer {id:$id})
-      ON CREATE SET a.employeeId=$employeeId, a.appraisalId=$appraisalId, a.questionId=$questionId, a.prompt=$prompt, a.text="", a.createdAt=datetime()
-      SET a.text=$text, a.updatedAt=datetime()
+      ON CREATE SET a.employeeId=$employeeId, a.appraisalId=$appraisalId, a.questionId=$questionId, a.prompt=$prompt, a.text="", a.createdAt=datetime(), a.origin='demo'
       MERGE (ap)-[:HAS_ANSWER]->(a)
       RETURN a.questionId AS questionId, a.prompt AS prompt, a.text AS text, toString(a.updatedAt) AS updatedAt`, {
       id: answerId(appraisalId, employeeId, questionId), appraisalId, employeeId, questionId, prompt: question.prompt, text,
     });
-    const r = result.records[0]; return { questionId: r.get("questionId"), prompt: r.get("prompt"), text: r.get("text"), updatedAt: r.get("updatedAt") };
+    const r = result.records[0];
+    const version = await createAnswerVersion({ answerId: answerId(appraisalId, employeeId, questionId), text, origin: "demo" });
+    await session.run(`MATCH (a:Answer {id:$id}) SET a.text=$text, a.updatedAt=datetime()`, { id: answerId(appraisalId, employeeId, questionId), text });
+    return { questionId: r.get("questionId"), prompt: r.get("prompt"), text, updatedAt: new Date().toISOString(), version };
+  } catch (error) { throw unavailable(error); } finally { await session.close(); }
+}
+
+export async function createAnswerVersion(input: { answerId: string; text: string; origin: string }): Promise<number> {
+  const session = driver().session();
+  try {
+    const result = await session.run(`
+      MATCH (a:Answer {id:$answerId})
+      OPTIONAL MATCH (a)-[:HAS_VERSION]->(v:AnswerVersion)
+      WITH a, coalesce(max(v.version), 0) AS next
+      CREATE (nv:AnswerVersion {version: next + 1, text:$text, origin:$origin, createdAt:datetime()})
+      MERGE (a)-[:HAS_VERSION]->(nv)
+      SET a.currentVersion = next + 1
+      RETURN nv.version AS version`, { answerId: input.answerId, text: input.text, origin: input.origin });
+    return Number(result.records[0]?.get("version") ?? 1);
   } catch (error) { throw unavailable(error); } finally { await session.close(); }
 }
 
 export async function savePeerFeedback(appraisalId: string, employeeId: string, reviewerId: string, text: string): Promise<{ feedbackId: string; answerId: string; text: string }> {
   if (typeof text !== "string" || !text.trim() || text.length > 10000) throw new Error("Invalid feedback text");
+  if (reviewerId.startsWith("reviewer-00") && Number(reviewerId.split("-")[2]) <= 4) throw new Error("Seeded peer feedback is read-only");
   const feedbackId = `fb-live:${appraisalId}:${employeeId}:${reviewerId}`;
   const id = `answer-live:${appraisalId}:${employeeId}:${reviewerId}`;
   const session = driver().session();
@@ -61,19 +78,20 @@ export async function savePeerFeedback(appraisalId: string, employeeId: string, 
       MERGE (f:Feedback {id:$feedbackId}) ON CREATE SET f.reviewerId=$reviewerId, f.synthetic=true, f.createdAt=datetime()
       SET f.reviewerId=$reviewerId
       MERGE (a:Answer {id:$answerId})
-      ON CREATE SET a.employeeId=$employeeId, a.appraisalId=$appraisalId, a.text="", a.createdAt=datetime()
-      SET a.text=$text, a.updatedAt=datetime(), a.synthetic=true
+      ON CREATE SET a.employeeId=$employeeId, a.appraisalId=$appraisalId, a.text="", a.createdAt=datetime(), a.origin='demo', a.synthetic=true
       MERGE (f)-[:HAS_ANSWER]->(a)
       MERGE (f)-[:ABOUT]->(ap)
       MERGE (r)-[:PROVIDED]->(f)
       MERGE (e:Employee {id:$employeeId})
       MERGE (f)-[:REGARDS]->(e)
-      RETURN f.id AS feedbackId, a.id AS answerId, a.text AS text`, {
+      RETURN f.id AS feedbackId, a.id AS answerId`, {
       appraisalId, employeeId, reviewerId, feedbackId, answerId: id, text,
     });
     const r = result.records[0];
     if (!r) throw new Error("Appraisal not found");
-    return { feedbackId: r.get("feedbackId"), answerId: r.get("answerId"), text: r.get("text") };
+    await createAnswerVersion({ answerId: id, text, origin: "demo" });
+    await session.run(`MATCH (a:Answer {id:$id}) SET a.text=$text, a.updatedAt=datetime()`, { id, text });
+    return { feedbackId: r.get("feedbackId"), answerId: id, text };
   } catch (error) { if ((error as Error).message === "Appraisal not found") throw error; throw unavailable(error); } finally { await session.close(); }
 }
 

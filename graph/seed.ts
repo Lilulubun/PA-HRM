@@ -7,8 +7,8 @@ const password = process.env.NEO4J_PASSWORD ?? 'neo4j';
 
 const cypher = `
 UNWIND $feedback AS item
-MERGE (f:Feedback {id:item.id}) ON CREATE SET f.synthetic=true, f.reviewerId=item.reviewerId
-MERGE (a:Answer {id:item.answerId}) ON CREATE SET a.synthetic=true, a.text=item.text
+MERGE (f:Feedback {id:item.id}) ON CREATE SET f.synthetic=true, f.reviewerId=item.reviewerId, f.origin='seeded'
+MERGE (a:Answer {id:item.answerId}) ON CREATE SET a.synthetic=true, a.text=item.text, a.origin='seeded'
 MERGE (f)-[:HAS_ANSWER]->(a)
 WITH f, item
 MATCH (ap:Appraisal {id:$appraisalId})
@@ -42,9 +42,19 @@ export async function seed(): Promise<void> {
     for (const anchor of fixtureManifest.anchors) await session.run('MERGE (r:RubricAnchor {id:$id}) ON CREATE SET r.level=$level, r.text=$text, r.synthetic=true', anchor);
     await session.run(cypher, { appraisalId: fixtureManifest.appraisal.id, employeeId: fixtureManifest.employee.id, feedback: fixtureManifest.feedback });
     // Self-review answer: authored by the employee, entity-centric link.
-    await session.run(`MERGE (a:Answer {id:$id}) ON CREATE SET a.text=$text, a.synthetic=true
+    await session.run(`MERGE (a:Answer {id:$id}) ON CREATE SET a.text=$text, a.synthetic=true, a.origin='seeded'
       WITH a MATCH (e:Employee {id:$employeeId}), (ap:Appraisal {id:$appraisalId})
-      MERGE (e)-[:AUTHORED]->(a) MERGE (ap)-[:HAS_ANSWER]->(a)`, { id: fixtureManifest.selfReview.id, text: fixtureManifest.selfReview.text, employeeId: fixtureManifest.employee.id, appraisalId: fixtureManifest.appraisal.id });
+      MERGE (e)-[:AUTHORED]->(a) MERGE (ap)-[:HAS_ANSWER]->(a)
+      WITH a WHERE a.currentVersion IS NULL
+      CREATE (v:AnswerVersion {version:1, text:$text, origin:'seeded', createdAt:datetime()})
+      MERGE (a)-[:HAS_VERSION]->(v)
+      SET a.currentVersion = 1`, { id: fixtureManifest.selfReview.id, text: fixtureManifest.selfReview.text, employeeId: fixtureManifest.employee.id, appraisalId: fixtureManifest.appraisal.id });
+    await session.run(`MATCH (a:Answer {origin:'seeded'}) WHERE a.currentVersion IS NULL
+      MATCH (a)-[:HAS_ANSWER|AUTHORED]-()
+      WITH a, a.text AS text
+      CREATE (v:AnswerVersion {version:1, text:text, origin:'seeded', createdAt:datetime()})
+      MERGE (a)-[:HAS_VERSION]->(v)
+      SET a.currentVersion = 1`);
     // Entity-centric hub links.
     await session.run(`MATCH (e:Employee {id:$employeeId}), (ap:Appraisal {id:$appraisalId}), (m:Manager {id:$managerId})
       MERGE (ap)-[:OF_EMPLOYEE]->(e)

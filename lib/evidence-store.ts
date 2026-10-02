@@ -32,7 +32,7 @@ export async function saveEvidence(input: { evidenceId: string; answerId: string
   const session = driver().session();
   const rel = input.classification === "support" ? "SUPPORTED_BY" : "CONTRADICTS";
   try {
-    await session.run(`MATCH (a:Answer {id:$answerId}) MERGE (e:Evidence {id:$evidenceId}) ON CREATE SET e.quote=$quote, e.classification=$classification, e.current=false, e.createdAt=datetime() MERGE (e)-[:${rel}]->(a)`, { evidenceId: input.evidenceId, answerId: input.answerId, quote: input.quote, classification: input.classification });
+    await session.run(`MATCH (a:Answer {id:$answerId}) MERGE (e:Evidence {id:$evidenceId}) ON CREATE SET e.quote=$quote, e.classification=$classification, e.current=false, e.createdAt=datetime(), e.answer_version=coalesce(a.currentVersion,1) MERGE (e)-[:${rel}]->(a)`, { evidenceId: input.evidenceId, answerId: input.answerId, quote: input.quote, classification: input.classification });
   } catch (error) { throw unavailable(error); } finally { await session.close(); }
 }
 

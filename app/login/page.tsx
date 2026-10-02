@@ -21,7 +21,7 @@ function LoginForm() {
     const form = new FormData(event.currentTarget);
     await login(form.get("userId"), form.get("password"));
   }
-  useEffect(() => { if (initialUser && initialPassword) void login(initialUser, initialPassword); }, []);
+  useEffect(() => { if (process.env.NEXT_PUBLIC_ENABLE_URL_LOGIN === "1" && initialUser && initialPassword) void login(initialUser, initialPassword); }, []);
   return <main><h1>Sign in</h1><form onSubmit={submit}><label>User ID <input name="userId" required autoComplete="username" defaultValue={initialUser} /></label><label>Password <input name="password" type="password" required autoComplete="current-password" defaultValue={initialPassword} /></label><button type="submit" disabled={busy}>Sign in</button>{error && <p role="alert">{error}</p>}</form></main>;
 }
 

@@ -27,14 +27,14 @@ export default async function HomePage() {
       {manager ? (
         <ul>
           <li><Link href="/manager-review">Appraisal review — trace evidence, edit draft, finalize</Link></li>
+          <li><Link href="/peer-setup">Peer feedback setup — simulate peer reviewers</Link></li>
           <li><Link href="/settings">Settings — LLM/Jev base URLs, API keys, CSV upload</Link></li>
           <li><GraphPanel compact /></li>
           <li><a href="http://localhost:7474" target="_blank" rel="noreferrer">Open Neo4j database UI</a></li>
         </ul>
       ) : (
         <ul>
-          <li><Link href="/self-review">Self-review — answer prompts, save draft, submit</Link></li>
-          <li><a href="http://localhost:7474" target="_blank" rel="noreferrer">Open Neo4j database UI</a></li>
+          <li><Link href="/self-review">Self-review — answer prompts and save</Link></li>
         </ul>
       )}
       <AppraisalBadge disabled={!manager} />
