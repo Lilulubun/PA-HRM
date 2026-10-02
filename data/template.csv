@@ -1,0 +1,2 @@
+record_type,record_id,employee_id,appraisal_id,reviewer_id,reviewer_type,feedback_id,answer_id,answer_text,competency_id,rating_level,synthetic
+feedback,fb-001,employee-001,appraisal-001,reviewer-001,peer,fb-001,answer-001,"Example source statement",competency-problem-solving,,true

@@ -1,0 +1,10 @@
+record_type,record_id,employee_id,appraisal_id,reviewer_id,reviewer_type,feedback_id,answer_id,answer_text,competency_id,rating_level,synthetic
+feedback,fb-001,employee-001,appraisal-001,reviewer-001,peer,fb-001,answer-001,"Evidence demonstrates clear root-cause analysis.",competency-problem-solving,,true
+feedback,fb-002,employee-001,appraisal-001,reviewer-001,peer,fb-002,answer-002,"Evidence demonstrates clear root-cause analysis.",competency-problem-solving,,true
+feedback,fb-003,employee-001,appraisal-001,reviewer-002,peer,fb-003,answer-003,"Frequently resolves complex incidents independently.",competency-problem-solving,,true
+feedback,fb-004,employee-001,appraisal-001,reviewer-002,peer,fb-004,answer-004,"Needs more structure when solving unfamiliar problems.",competency-problem-solving,,true
+feedback,fb-005,employee-001,appraisal-001,reviewer-003,peer,fb-005,answer-005,"Communicates project updates promptly.",competency-problem-solving,,true
+feedback,fb-006,employee-001,appraisal-001,reviewer-003,peer,fb-006,answer-006,"Could document troubleshooting steps more consistently.",competency-problem-solving,,true
+feedback,fb-007,employee-001,appraisal-001,reviewer-004,peer,fb-007,answer-007,"No examples were provided for this competency.",competency-problem-solving,,true
+feedback,fb-self,employee-001,appraisal-001,employee-001,self,fb-self,answer-self-001,"I solved a synthetic incident by isolating its root cause.",competency-problem-solving,,true
+answer,answer-extra-001,employee-001,appraisal-001,reviewer-001,peer,fb-001,answer-extra-001,"Documented a workaround for pipeline failure.",competency-problem-solving,,true
